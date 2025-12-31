@@ -15,7 +15,10 @@ const debugRoutes = require('./routes/debug.routes');
 connectToDb();
 
 app.use(cors({
-  origin: "http://localhost:5173", // your React app URL
+  origin: [
+    "http://localhost:5173",
+    "https://orbix-frontend.vercel.app"
+  ],
   credentials: true,               // allow cookies & headers like Authorization
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
   allowedHeaders: ["Content-Type", "Authorization"]

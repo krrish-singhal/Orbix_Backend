@@ -644,13 +644,17 @@ module.exports.sendReceipt = async (req, res) => {
     try {
         const { rideId, customerName, customerEmail, paymentMethod, amount, paymentIntentId } = req.body;
 
-        console.log('Attempting to send receipt for ride:', rideId);
+        console.log('📧 Attempting to send receipt for ride:', rideId);
+        console.log('📧 Recipient:', customerEmail);
+        console.log('📧 Email configuration check:');
+        console.log('   - EMAIL_USER:', process.env.EMAIL_USER ? '✅ Set' : '❌ Not set');
+        console.log('   - EMAIL_PASSWORD:', process.env.EMAIL_PASSWORD ? '✅ Set' : '❌ Not set');
 
         // Check if email is configured
         if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) {
             console.log('⚠️ Email not configured, skipping receipt');
             return res.status(200).json({ 
-                message: 'Email configuration not available', 
+                message: 'Email configuration not available in production', 
                 emailSent: false,
                 configured: false
             });
@@ -669,16 +673,25 @@ module.exports.sendReceipt = async (req, res) => {
             customerName, customerEmail, paymentMethod, amount, paymentIntentId
         });
 
-        // Create transporter
+        console.log('📧 Creating email transporter...');
+        
+        // Create transporter with more options for production
         const transporter = nodemailer.createTransport({
             service: 'gmail',
             auth: {
                 user: process.env.EMAIL_USER,
                 pass: process.env.EMAIL_PASSWORD
+            },
+            secure: true,
+            port: 465,
+            tls: {
+                rejectUnauthorized: false
             }
         });
 
-        await transporter.sendMail({
+        console.log('📧 Sending email...');
+        
+        const info = await transporter.sendMail({
             from: `"Orbix Rides" <${process.env.EMAIL_USER}>`,
             to: customerEmail,
             subject: `Ride Receipt - Orbix #${ride._id.toString().slice(-8).toUpperCase()}`,
@@ -686,9 +699,15 @@ module.exports.sendReceipt = async (req, res) => {
         });
 
         console.log('✅ Receipt sent successfully to:', customerEmail);
-        res.status(200).json({ message: 'Receipt sent successfully', emailSent: true });
+        console.log('📧 Message ID:', info.messageId);
+        res.status(200).json({ 
+            message: 'Receipt sent successfully', 
+            emailSent: true,
+            messageId: info.messageId
+        });
     } catch (error) {
         console.error('❌ Send receipt error:', error.message);
+        console.error('❌ Error details:', error);
         // Return 200 even on error so payment doesn't fail
         res.status(200).json({ 
             message: 'Receipt sending failed but payment was successful', 

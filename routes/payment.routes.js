@@ -86,6 +86,15 @@ router.post('/create-payment-intent',
     paymentController.createPaymentIntent
 );
 
+// Confirm Stripe payment and update ride
+router.post('/confirm-stripe-payment',
+    authMiddleware.authUser,
+    body('rideId').isString().notEmpty().withMessage('Ride ID is required'),
+    body('paymentIntentId').isString().notEmpty().withMessage('Payment Intent ID is required'),
+    body('amount').isNumeric().withMessage('Amount is required'),
+    paymentController.confirmStripePayment
+);
+
 // Process UPI payment
 router.post('/process-upi',
     authMiddleware.authUser,

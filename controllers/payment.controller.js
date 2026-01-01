@@ -458,15 +458,36 @@ module.exports.createPaymentIntent = async (req, res) => {
     try {
         const { amount, rideId, customerName, customerEmail } = req.body;
 
+        console.log('Creating payment intent:', { amount, rideId, customerName, customerEmail });
+
         if (!amount || !rideId) {
             return res.status(400).json({ message: 'Missing required fields' });
         }
 
+        // Verify ride exists
+        const ride = await rideModel.findById(rideId);
+        if (!ride) {
+            return res.status(404).json({ message: 'Ride not found' });
+        }
+
         const paymentIntent = await stripe.paymentIntents.create({
-            amount: Math.round(amount * 100),
+            amount: Math.round(amount * 100), // Convert to smallest currency unit
             currency: 'inr',
-            metadata: { rideId, customerName, customerEmail }
+            metadata: { 
+                rideId, 
+                customerName, 
+                customerEmail,
+                userId: req.user._id.toString()
+            },
+            description: `Orbix Ride Payment - ${ride.pickup} to ${ride.destination}`
         });
+
+        console.log('Payment intent created:', paymentIntent.id);
+
+        // Update ride with payment intent
+        ride.paymentIntentId = paymentIntent.id;
+        ride.paymentStatus = 'pending';
+        await ride.save();
 
         res.status(200).json({
             clientSecret: paymentIntent.client_secret,
@@ -474,23 +495,36 @@ module.exports.createPaymentIntent = async (req, res) => {
         });
     } catch (error) {
         console.error('Create payment intent error:', error);
-        res.status(500).json({ message: 'Failed to create payment intent', error: error.message });
+        res.status(500).json({ 
+            message: 'Failed to create payment intent', 
+            error: error.message 
+        });
     }
 };
 
-// Process UPI payment
-module.exports.processUPIPayment = async (req, res) => {
+// Confirm Stripe payment and update ride/captain
+module.exports.confirmStripePayment = async (req, res) => {
     try {
-        const { rideId, customerName, customerEmail, amount } = req.body;
+        const { rideId, paymentIntentId, amount } = req.body;
+
+        console.log('Confirming Stripe payment:', { rideId, paymentIntentId, amount });
 
         const ride = await rideModel.findById(rideId);
-        if (!ride) return res.status(404).json({ message: 'Ride not found' });
+        if (!ride) {
+            return res.status(404).json({ message: 'Ride not found' });
+        }
 
+        // Update ride payment status
         ride.paymentStatus = 'completed';
-        ride.paymentMethod = 'upi';
+        ride.paymentMethod = 'card';
+        ride.paymentID = paymentIntentId;
+        ride.status = 'completed';
         await ride.save();
 
-        const captainEarnings = Math.round(amount * 0.8);
+        console.log('Ride payment status updated:', ride._id);
+
+        // Update captain earnings
+        const captainEarnings = Math.round(amount * 0.8); // 80% to captain
         await captainModel.findByIdAndUpdate(ride.captain, {
             $inc: {
                 todayEarnings: captainEarnings,
@@ -501,10 +535,67 @@ module.exports.processUPIPayment = async (req, res) => {
             }
         });
 
-        res.status(200).json({ message: 'Payment processed successfully', ride });
+        console.log('Captain earnings updated');
+
+        res.status(200).json({ 
+            success: true,
+            message: 'Payment confirmed successfully', 
+            ride 
+        });
+    } catch (error) {
+        console.error('Confirm Stripe payment error:', error);
+        res.status(500).json({ 
+            message: 'Payment confirmation failed', 
+            error: error.message 
+        });
+    }
+};
+
+// Process UPI payment
+module.exports.processUPIPayment = async (req, res) => {
+    try {
+        const { rideId, customerName, customerEmail, amount } = req.body;
+
+        console.log('Processing UPI payment:', { rideId, amount });
+
+        const ride = await rideModel.findById(rideId);
+        if (!ride) {
+            return res.status(404).json({ message: 'Ride not found' });
+        }
+
+        // Update ride payment status
+        ride.paymentStatus = 'completed';
+        ride.paymentMethod = 'upi';
+        ride.status = 'completed';
+        await ride.save();
+
+        console.log('Ride payment status updated:', ride._id);
+
+        // Update captain earnings
+        const captainEarnings = Math.round(amount * 0.8); // 80% to captain
+        await captainModel.findByIdAndUpdate(ride.captain, {
+            $inc: {
+                todayEarnings: captainEarnings,
+                weeklyEarnings: captainEarnings,
+                tripsToday: 1,
+                weeklyTrips: 1,
+                totalTrips: 1
+            }
+        });
+
+        console.log('Captain earnings updated');
+
+        res.status(200).json({ 
+            success: true,
+            message: 'Payment processed successfully', 
+            ride 
+        });
     } catch (error) {
         console.error('UPI payment error:', error);
-        res.status(500).json({ message: 'Payment processing failed', error: error.message });
+        res.status(500).json({ 
+            message: 'Payment processing failed', 
+            error: error.message 
+        });
     }
 };
 

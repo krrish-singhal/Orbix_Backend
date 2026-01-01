@@ -644,8 +644,26 @@ module.exports.sendReceipt = async (req, res) => {
     try {
         const { rideId, customerName, customerEmail, paymentMethod, amount, paymentIntentId } = req.body;
 
+        console.log('Attempting to send receipt for ride:', rideId);
+
+        // Check if email is configured
+        if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) {
+            console.log('⚠️ Email not configured, skipping receipt');
+            return res.status(200).json({ 
+                message: 'Email configuration not available', 
+                emailSent: false,
+                configured: false
+            });
+        }
+
         const ride = await rideModel.findById(rideId);
-        if (!ride) return res.status(404).json({ message: 'Ride not found' });
+        if (!ride) {
+            console.log('❌ Ride not found');
+            return res.status(200).json({ 
+                message: 'Ride not found', 
+                emailSent: false 
+            });
+        }
 
         const htmlContent = generateEmailTemplate(ride, {
             customerName, customerEmail, paymentMethod, amount, paymentIntentId
@@ -667,9 +685,15 @@ module.exports.sendReceipt = async (req, res) => {
             html: htmlContent
         });
 
+        console.log('✅ Receipt sent successfully to:', customerEmail);
         res.status(200).json({ message: 'Receipt sent successfully', emailSent: true });
     } catch (error) {
-        console.error('Send receipt error:', error);
-        res.status(500).json({ message: 'Failed to send receipt', error: error.message });
+        console.error('❌ Send receipt error:', error.message);
+        // Return 200 even on error so payment doesn't fail
+        res.status(200).json({ 
+            message: 'Receipt sending failed but payment was successful', 
+            emailSent: false,
+            error: error.message 
+        });
     }
 };
